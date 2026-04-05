@@ -1,0 +1,238 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+-- ===== Переменные состояния =====
+local player = game:GetService("Players").LocalPlayer
+local camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local RS = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+local flyOn = false
+local flySpeed = 60
+local bv, bg, conn
+local skip = false
+local espEnabled = false
+local hitboxSize = 2
+local teamCheck = false
+
+-- Кеширование для скипа (чтобы не лагало)
+local cachedRemotes = {}
+
+local function refreshSkipRemotes()
+    cachedRemotes = {}
+    local keywords = {"skip", "vote", "ready", "start", "next", "confirm"}
+    for _, v in pairs(RS:GetDescendants()) do
+        if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+            local name = v.Name:lower()
+            for _, key in pairs(keywords) do
+                if name:find(key) then
+                    table.insert(cachedRemotes, v)
+                    break
+                end
+            end
+        end
+    end
+end
+
+-- ===== Функции ESP и Хитбоксов =====
+RunService.RenderStepped:Connect(function()
+    for _, v in pairs(Players:GetPlayers()) do
+        if v ~= player and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
+            local isTeammate = (v.Team == player.Team and player.Team ~= nil)
+            
+            -- ESP Logic
+            local highlight = v.Character:FindFirstChild("BauserESP")
+            if espEnabled then
+                if teamCheck or not isTeammate then
+                    if not highlight then
+                        highlight = Instance.new("Highlight", v.Character)
+                        highlight.Name = "BauserESP"
+                        highlight.FillColor = Color3.fromRGB(255, 0, 0)
+                        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    end
+                else
+                    if highlight then highlight:Destroy() end
+                end
+            elseif highlight then
+                highlight:Destroy()
+            end
+
+            -- Hitbox Logic
+            local hrp = v.Character.HumanoidRootPart
+            if hitboxSize > 2 then
+                if teamCheck or not isTeammate then
+                    hrp.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+                    hrp.Transparency = 0.7
+                    hrp.Color = Color3.fromRGB(255, 0, 0)
+                    hrp.CanCollide = false
+                else
+                    hrp.Size = Vector3.new(2, 2, 2)
+                    hrp.Transparency = 1
+                end
+            else
+                hrp.Size = Vector3.new(2, 2, 2)
+                hrp.Transparency = 1
+            end
+        end
+    end
+end)
+
+-- ===== Функции полета (Fly) =====
+local function stopFly()
+    if conn then conn:Disconnect() end
+    if bv then bv:Destroy() end
+    if bg then bg:Destroy() end
+    local h = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+    if h then h.PlatformStand = false h:ChangeState(Enum.HumanoidStateType.Running) end
+end
+
+local function startFly()
+    local c = player.Character
+    if not c or not c:FindFirstChild("HumanoidRootPart") then return end
+    local h, r = c:FindFirstChildOfClass("Humanoid"), c.HumanoidRootPart
+    h.PlatformStand = true
+    bv = Instance.new("BodyVelocity", r)
+    bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+    bg = Instance.new("BodyGyro", r)
+    bg.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+    bg.P = 90000
+    conn = RunService.RenderStepped:Connect(function()
+        local move = h.MoveDirection
+        bv.Velocity = (move.Magnitude > 0) and (Vector3.new(move.X, (math.abs(camera.CFrame.LookVector.Y) > 0.15 and camera.CFrame.LookVector.Y or 0), move.Z).Unit * flySpeed) or Vector3.zero
+        bg.CFrame = CFrame.lookAt(r.Position, r.Position + camera.CFrame.LookVector)
+    end)
+end
+
+-- ===== Создание Окна =====
+local Window = Rayfield:CreateWindow({
+    Name = "Bauser Script | Rayfield Edition",
+    LoadingTitle = "Загрузка Bauser...",
+    LoadingSubtitle = "by Bauser",
+    KeySystem = true,
+    KeySettings = {
+        Title = "Вход",
+        Subtitle = "Tg @keatlovemine",
+        Note = "Пароль: феникс",
+        FileName = "PhoenixKey",
+        SaveKey = true,
+        Key = {"феникс"}
+    }
+})
+
+-- ===== ВКЛАДКА 1: RTTD (ULTRA SKIP) =====
+local RttdTab = Window:CreateTab("RTTD", 4483362458)
+
+RttdTab:CreateToggle({
+    Name = "Ultra Fast Auto-Skip",
+    CurrentValue = false,
+    Flag = "SkipToggle",
+    Callback = function(Value)
+        skip = Value
+        if skip then
+            refreshSkipRemotes()
+            task.spawn(function()
+                while skip do
+                    for i = 1, #cachedRemotes do
+                        local remote = cachedRemotes[i]
+                        if remote then
+                            if remote:IsA("RemoteEvent") then
+                                remote:FireServer()
+                                remote:FireServer(true)
+                                remote:FireServer("Skip")
+                            else
+                                task.spawn(function() remote:InvokeServer() end)
+                            end
+                        end
+                    end
+                    task.wait(0.01) -- Минимальная задержка против лагов сети
+                end
+            end)
+        end
+    end,
+})
+
+RttdTab:CreateButton({
+    Name = "Refresh Skip Remotes",
+    Callback = function()
+        refreshSkipRemotes()
+        Rayfield:Notify({Title = "System", Content = "События обновлены", Duration = 2})
+    end,
+})
+
+-- ===== ВКЛАДКА 2: PLAYER =====
+local PlayerTab = Window:CreateTab("Player", 4483362458)
+
+local FlyToggle = PlayerTab:CreateToggle({
+    Name = "Fly (Hotkey: Q)",
+    CurrentValue = false,
+    Flag = "FlyToggle",
+    Callback = function(Value)
+        flyOn = Value
+        if flyOn then startFly() else stopFly() end
+    end,
+})
+
+PlayerTab:CreateSlider({
+    Name = "Fly Speed",
+    Range = {10, 500},
+    Increment = 5,
+    CurrentValue = 60,
+    Flag = "FlySpeed",
+    Callback = function(V) flySpeed = V end,
+})
+
+PlayerTab:CreateInput({
+    Name = "WalkSpeed",
+    PlaceholderText = "16",
+    Callback = function(T)
+        local h = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+        if h and tonumber(T) then h.WalkSpeed = tonumber(T) end
+    end,
+})
+
+-- ===== ВКЛАДКА 3: UNIVERSAL =====
+local UniTab = Window:CreateTab("Universal", 4483362458)
+
+UniTab:CreateToggle({
+    Name = "ESP Player (Red)",
+    CurrentValue = false,
+    Flag = "EspToggle",
+    Callback = function(V) espEnabled = V end,
+})
+
+UniTab:CreateSlider({
+    Name = "Hitbox Size",
+    Range = {2, 50},
+    Increment = 1,
+    CurrentValue = 2,
+    Flag = "HitboxSlider",
+    Callback = function(V) hitboxSize = V end,
+})
+
+UniTab:CreateToggle({
+    Name = "Team Check (ESP/Hitbox)",
+    CurrentValue = false,
+    Flag = "TeamToggle",
+    Callback = function(V) teamCheck = V end,
+})
+
+-- ===== Бинды =====
+game:GetService("UserInputService").InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.Q then
+        flyOn = not flyOn
+        FlyToggle:Set(flyOn)
+    end
+    if input.KeyCode == Enum.KeyCode.X then
+        local gui = game:GetService("CoreGui"):FindFirstChild("Rayfield") or player:WaitForChild("PlayerGui"):FindFirstChild("Rayfield")
+        if gui then gui.Enabled = not gui.Enabled end
+    end
+end)
+
+Rayfield:Notify({
+    Title = "Bauser Script",
+    Content = "Загружено! Скип оптимизирован. X - Меню",
+    Duration = 5,
+    Image = 4483362458,
+})
+
